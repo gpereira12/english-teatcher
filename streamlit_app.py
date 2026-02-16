@@ -19,8 +19,6 @@ st.set_page_config(
 )
 
 # --- JAVASCRIPT DOM INJECTION (THE REAL FIX) ---
-# This script moves the Audio Input INSIDE the Chat Input Container
-# ensuring they always move together and align perfectly.
 js_code = """
 <script>
     function moveMic() {
@@ -28,7 +26,6 @@ js_code = """
         const chatInput = window.parent.document.querySelector('.stChatInputContainer');
         
         if (mic && chatInput) {
-            // Check if already moved
             if (!chatInput.contains(mic)) {
                 chatInput.appendChild(mic);
                 mic.style.position = 'absolute';
@@ -39,8 +36,6 @@ js_code = """
             }
         }
     }
-    
-    // Run repeatedly to catch re-renders
     setInterval(moveMic, 100);
 </script>
 """
@@ -51,17 +46,13 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     
-    /* Dark Mode Global */
     .stApp {
         background-color: #0E0E10;
         color: white;
         font-family: 'Inter', sans-serif;
     }
-    
-    /* Hide top header decoration */
     header {visibility: hidden;}
     
-    /* Chat Bubbles */
     .stChatMessage {
         background: transparent;
         padding: 5px 0;
@@ -89,27 +80,23 @@ st.markdown("""
         border-bottom-right-radius: 4px;
     }
     
-    /* INPUT CONTAINER STYLING */
-    /* We make the sidebar transparent so only the pill is visible */
     [data-testid="stChatInputContainer"] {
         background: transparent !important;
         padding-bottom: 20px !important;
     }
     
-    /* THE PILL */
     [data-testid="stChatInput"] {
         background: #1C1C1E !important;
         border-radius: 30px !important;
         border: 1px solid #333 !important;
         color: white !important;
-        padding-right: 50px !important; /* Space for Mic */
+        padding-right: 50px !important; 
     }
     
     [data-testid="stChatInput"] textarea {
         color: white !important;
     }
     
-    /* MIC BUTTON STYLE */
     [data-testid="stAudioInput"] button {
         background: transparent !important;
         border: none !important;
@@ -117,7 +104,6 @@ st.markdown("""
         padding: 0 !important;
     }
     
-    /* Hide Avatars */
     [data-testid="stChatMessageAvatarUser"], [data-testid="stChatMessageAvatarAssistant"] {
         display: none !important;
     }
@@ -134,6 +120,63 @@ def get_api_key():
 
 api_key = get_api_key()
 
+# --- MODEL ROTATION LOGIC ---
+MODELS_TO_TRY = [
+    "gemini-2.0-flash", 
+    "gemini-1.5-flash", 
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-pro",
+    "gemini-1.5-pro-latest"
+]
+
+def get_chat_response(messages, context_prompt, audio_data=None):
+    """
+    Tries to get a response from the API, rotating through models if 429/404 occurs.
+    """
+    last_error = None
+    
+    if not api_key:
+        return {"response": "Please provide an API Key in the sidebar.", "error": True}
+
+    genai.configure(api_key=api_key)
+
+    for model_name in MODELS_TO_TRY:
+        try:
+            # Create Model
+            model = genai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=context_prompt
+            )
+            
+            chat = model.start_chat(history=[]) # Stateless for simplicity in this fallback logic
+            
+            # Send Message
+            if audio_data:
+                response = chat.send_message([{"mime_type": "audio/wav", "data": audio_data}, "Analyze this audio."])
+            else:
+                # Use only the last user message for stateless retry, or rebuild history if needed.
+                # For robustness, we send just the prompt here in rotation.
+                user_msg = messages[-1]["content"]
+                response = chat.send_message(user_msg)
+            
+            # If successful, return data
+            return {
+                "text": response.text, 
+                "model_used": model_name,
+                "error": False
+            }
+            
+        except Exception as e:
+            err_str = str(e)
+            print(f"❌ Failed with {model_name}: {err_str}")
+            last_error = err_str
+            # If it's a 429 (Quota) or 404 (Not Found), we continue loop.
+            # If it's something else, we might still want to try others.
+            continue
+            
+    return {"response": f"All models failed. Last error: {last_error}", "error": True}
+
+
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### 🎓 English Pro")
@@ -142,12 +185,8 @@ with st.sidebar:
         
     st.caption("AI Status")
     if api_key:
-        genai.configure(api_key=api_key)
-        # FORCE USE 2.0-FLASH as confirmed available
-        target_model = "gemini-2.0-flash"
-        st.success(f"🟢 Active: `{target_model}`")
+        st.success(f"🟢 System Online")
     else:
-        target_model = None
         st.error("🔴 No Key")
 
     scenario = st.selectbox("Context", ['General Chat', 'Job Interview', 'Coffee Shop'])
@@ -156,9 +195,7 @@ with st.sidebar:
         st.rerun()
 
 # --- LOGIC ---
-if nav := st.session_state.get("messages", []):
-    pass
-else:
+if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # Display
@@ -168,6 +205,9 @@ for msg in st.session_state.messages:
     with st.chat_message(role):
         if role == "assistant" and msg.get("feedback"):
             st.markdown(f"<small style='color:#888'>💡 {msg['feedback']}</small>", unsafe_allow_html=True)
+            if msg.get("model_used"):
+                 st.markdown(f"<small style='color:#444; font-size: 0.7em'>🤖 {msg['model_used']}</small>", unsafe_allow_html=True)
+        
         st.markdown(f'<div class="bubble {bubble}">{msg["content"]}</div>', unsafe_allow_html=True)
         if msg.get("audio"):
             st.audio(msg["audio"], format="audio/mp3")
@@ -177,44 +217,41 @@ def run_chat(txt=None, aud=None):
     user_cont = txt if txt else "🎤 [Audio]"
     st.session_state.messages.append({"role": "user", "content": user_cont})
     
+    # Context Prompt
+    sys_prompt = f"Tutor Roleplay: {scenario}. APA Method. Return JSON with 'response', 'feedback', 'suggestions'."
+
+    with st.spinner("Thinking..."):
+        result = get_chat_response(st.session_state.messages, sys_prompt, aud)
+    
+    if result.get("error"):
+        st.error(result["response"])
+        return
+
+    raw_text = result["text"]
+    model_used = result["model_used"]
+
+    # Parse JSON
     try:
-        model = genai.GenerativeModel(
-            model_name=target_model,
-            system_instruction=f"Tutor Roleplay: {scenario}. APA Method. Return JSON with 'response', 'feedback', 'suggestions'."
-        )
-        chat = model.start_chat()
+        data = json.loads(raw_text.replace("```json","").replace("```","").strip())
+    except:
+        data = {"response": raw_text, "feedback": "", "suggestions": []}
         
-        if aud:
-            response = chat.send_message([{"mime_type": "audio/wav", "data": aud}, "Analyze this audio."])
-        else:
-            response = chat.send_message(txt)
-            
-        try:
-            data = json.loads(response.text.replace("```json","").replace("```","").strip())
-        except:
-            data = {"response": response.text, "feedback": "", "suggestions": []}
-            
-        try:
-            buf = io.BytesIO()
-            gTTS(text=data["response"], lang='en').write_to_fp(buf)
-            audio = buf.getvalue()
-        except:
-            audio = None
-            
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": data["response"],
-            "feedback": data.get("feedback"),
-            "audio": audio
-        })
+    # TTS
+    try:
+        buf = io.BytesIO()
+        gTTS(text=data["response"], lang='en').write_to_fp(buf)
+        audio = buf.getvalue()
+    except:
+        audio = None
         
-    except Exception as e:
-        err = str(e)
-        if "429" in err:
-            st.warning("⏳ Quota Exceeded (Free Tier). Please wait a moment.")
-        else:
-            st.error(f"⚠️ API Error: {err}")
-            
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": data["response"],
+        "feedback": data.get("feedback"),
+        "audio": audio,
+        "model_used": model_used
+    })
+    
     st.rerun()
 
 # --- INPUTS ---
