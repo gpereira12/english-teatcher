@@ -42,18 +42,16 @@ st.markdown("""
 
 # --- GERENCIAMENTO DE API KEY ---
 def get_api_key():
-    # 1. Tenta st.secrets
     try:
-        return st.secrets["GOOGLE_API_KEY"]
+        if "GOOGLE_API_KEY" in st.secrets:
+            return st.secrets["GOOGLE_API_KEY"]
     except:
         pass
     
-    # 2. Tenta variável de ambiente local
     env_key = os.getenv("GOOGLE_API_KEY")
     if env_key:
         return env_key
     
-    # 3. Fallback: Input na Sidebar
     return None
 
 api_key = get_api_key()
@@ -111,6 +109,8 @@ if api_key:
     Keep the roleplay engaging and contextually appropriate.
     """
     
+    # Using 'gemini-1.5-flash' which is the stable name. 
+    # v1beta error usually happens if the model name is incorrect or library is outdated.
     model = genai.GenerativeModel(
         model_name="gemini-1.5-flash",
         system_instruction=system_instruction
@@ -128,43 +128,58 @@ st.caption(f"Praticando: **{scenario}**")
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg["role"] == "assistant":
-            # Bloco de Feedback (Adjust)
             if msg.get("feedback"):
                 with st.expander("🔍 Adjust (Feedback)", expanded=False):
                     st.info(msg["feedback"])
             
-            # Resposta Principal (Practice)
             st.write(msg["content"])
             
-            # Áudio se existir
             if msg.get("audio"):
                 st.audio(msg["audio"], format="audio/mp3")
         else:
             st.write(msg["content"])
+            if msg.get("type") == "audio":
+                st.info("🎤 Audio message sent")
 
-# --- LÓGICA DE INPUT ---
-if prompt := st.chat_input("Digite sua mensagem em inglês..."):
-    # Adicionar mensagem do usuário
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.write(prompt)
+# --- LÓGICA DE PROCESSAMENTO ---
+def process_message(prompt_text, audio_file=None):
+    st.session_state.messages.append({
+        "role": "user", 
+        "content": prompt_text if prompt_text else "[Audio Message]",
+        "type": "audio" if audio_file else "text"
+    })
     
-    # Gerar resposta da IA
+    with st.chat_message("user"):
+        if prompt_text:
+            st.write(prompt_text)
+        if audio_file:
+            st.audio(audio_file)
+
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # Criar histórico para o Gemini
-                chat = model.start_chat(history=[
-                    {"role": m["role"] if m["role"] != "assistant" else "model", 
-                     "parts": [m["content"]]} 
-                    for m in st.session_state.messages[:-1]
-                ])
+                # Se houver áudio, enviamos para o Gemini transcrever/responder diretamente
+                content = []
+                if prompt_text:
+                    content.append(prompt_text)
+                if audio_file:
+                    # Carregar áudio para o Gemini
+                    audio_bytes = audio_file.read()
+                    content.append({
+                        "mime_type": "audio/wav", # Streamlit audio_input uses wav/webp/mp3 depending on browser, but generally wav
+                        "data": audio_bytes
+                    })
                 
-                response = chat.send_message(prompt)
+                # Chat History
+                history = []
+                for m in st.session_state.messages[:-1]:
+                    role = m["role"] if m["role"] != "assistant" else "model"
+                    history.append({"role": role, "parts": [m["content"]]})
                 
-                # Parsing do JSON da resposta
+                chat = model.start_chat(history=history)
+                response = chat.send_message(content)
+                
                 raw_content = response.text.strip()
-                # Limpar possíveis markdown code blocks do JSON
                 if raw_content.startswith("```json"):
                     raw_content = raw_content.replace("```json", "", 1).replace("```", "", 1).strip()
                 
@@ -173,8 +188,7 @@ if prompt := st.chat_input("Digite sua mensagem em inglês..."):
                     feedback = res_json.get("feedback", "")
                     assistant_text = res_json.get("response", "I'm sorry, I couldn't process that.")
                 except:
-                    # Fallback caso não venha JSON válido
-                    feedback = "Perfect! Keep going."
+                    feedback = "Great! Keep practicing."
                     assistant_text = raw_content
 
                 # UI: Feedback
@@ -186,22 +200,40 @@ if prompt := st.chat_input("Digite sua mensagem em inglês..."):
                 
                 # Áudio (gTTS)
                 audio_buffer = io.BytesIO()
-                try:
-                    tts = gTTS(text=assistant_text, lang='en', tld='com')
-                    tts.write_to_fp(audio_buffer)
-                    st.audio(audio_buffer, format="audio/mp3")
-                    audio_data = audio_buffer.getvalue()
-                except Exception as e:
-                    st.error(f"Erro no áudio: {e}")
-                    audio_data = None
-
+                tts = gTTS(text=assistant_text, lang='en', tld='com')
+                tts.write_to_fp(audio_buffer)
+                st.audio(audio_buffer, format="audio/mp3")
+                
                 # Salvar na sessão
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": assistant_text,
                     "feedback": feedback,
-                    "audio": audio_data
+                    "audio": audio_buffer.getvalue()
                 })
                 
             except Exception as e:
                 st.error(f"Ocorreu um erro: {e}")
+
+# --- INPUTS ---
+# Colunas para botões de texto e áudio
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    prompt = st.chat_input("Digite sua mensagem em inglês...")
+    if prompt:
+        process_message(prompt)
+
+with col2:
+    # st.audio_input is available in Streamlit 1.34+
+    try:
+        audio_prompt = st.audio_input("Grave seu áudio")
+        if audio_prompt:
+            # Para evitar duplicidade no rerun do streamlit
+            # Usamos um controle simples
+            if "last_audio" not in st.session_state or st.session_state.last_audio != audio_prompt.name:
+                st.session_state.last_audio = audio_prompt.name
+                process_message(None, audio_prompt)
+    except Exception as e:
+        # Fallback se a versão do Streamlit for antiga ou der erro
+        st.caption("Recurso de áudio indisponível nesta versão do Streamlit.")
