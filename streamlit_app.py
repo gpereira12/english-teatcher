@@ -16,36 +16,44 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- DEFINITIVE DARK PRO CSS (The "One Cockpit" Design) ---
+# --- DEFINITIVE WHATSAPP UNIFIED COCKPIT CSS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     
-    /* Global Reset */
+    /* 1. Global Reset & Night Mode */
     .stApp {
         background-color: #000000 !important;
         color: #FFFFFF !important;
-        font-family: 'Inter', sans-serif;
+        font-family: 'Inter', -apple-system, sans-serif;
     }
 
-    /* Fixed Input Dock Simulation */
+    [data-testid="stHeader"] {
+        background-color: rgba(0,0,0,0.8) !important;
+        backdrop-filter: blur(20px);
+    }
+
+    /* Padding for Fixed Cockpit */
     .main .block-container {
         padding-bottom: 200px !important;
     }
 
-    /* Premium Bubbles */
+    /* 2. Chat Bubbles (High Fidelity) */
     .stChatMessage {
         background-color: transparent !important;
+        padding-top: 4px !important;
+        padding-bottom: 4px !important;
     }
 
     .bubble {
-        padding: 16px 22px;
-        border-radius: 24px;
+        padding: 14px 18px;
+        border-radius: 18px;
         font-size: 16px;
-        line-height: 1.6;
-        max-width: 82%;
-        margin-bottom: 4px;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+        line-height: 1.5;
+        max-width: 85%;
+        margin-bottom: 2px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        position: relative;
     }
 
     .bubble-assistant {
@@ -57,67 +65,88 @@ st.markdown("""
     }
 
     .bubble-user {
-        background: linear-gradient(135deg, #007AFF 0%, #0056B3 100%);
+        background: #005C4B; /* WhatsApp Dark Green but High Contrast */
         color: #FFFFFF;
         margin-left: auto;
         border-bottom-right-radius: 4px;
     }
 
-    /* 
-       INJECTION FOR UNIFIED ROUNDED DOCK 
-    */
-    /* Rounding the Chat Input Container 100% */
-    [data-testid="stChatInput"] {
-        border-radius: 80px !important;
-        padding: 8px !important;
-        background-color: #1C1C1E !important;
-        border: 1px solid #2C2C2E !important;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
-    }
-
-    /* Hide standard avatar display to keep only bubbles */
-    [data-testid="stChatMessageAvatarUser"], [data-testid="stChatMessageAvatarAssistant"] {
-        display: none !important;
-    }
-
-    /* Custom Intelligence Cards in response */
-    .intel-box {
-        background: rgba(44, 44, 46, 0.8);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 16px;
-        padding: 15px;
-        margin-bottom: 12px;
-    }
+    /* 3. The "One-Bar" WhatsApp Cockpit Simulation */
+    /* We style the Chat Input to look like a Pill and integrate the Audio Input */
     
-    .score-label {
-        background: #34C759;
-        color: black;
-        font-weight: 900;
-        padding: 3px 12px;
+    [data-testid="stChatInputContainer"] {
+        background-color: #202123 !important;
+        border-radius: 50px !important; /* 100% Rounding */
+        border: 1px solid #2C2C2E !important;
+        padding: 8px 60px 8px 20px !important; /* Extra padding on right for Mic */
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
+        max-width: 800px !important;
+        margin: 0 auto !important;
+    }
+
+    [data-testid="stChatInput"] {
+        background-color: transparent !important;
+        border: none !important;
+    }
+
+    /* Positioning the Audio Input INSIDE the right side of the pill area */
+    .fixed-mic-container {
+        position: fixed;
+        bottom: 38px;
+        right: calc(50% - 340px); /* Centered relative to the dock */
+        z-index: 10001;
+        width: 50px;
+    }
+
+    /* Adjusting the microphone widget to be stealthy until active */
+    [data-testid="stAudioInput"] {
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+    }
+
+    [data-testid="stAudioInput"] button {
+        background-color: transparent !important;
+        border: none !important;
+        color: #00A884 !important; /* WhatsApp Mic Color */
+    }
+
+    /* 4. Intelligence & Feedback */
+    .feedback-pill {
+        background: rgba(44, 44, 46, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 15px;
+        font-size: 0.9rem;
+    }
+
+    .accuracy-tag {
+        background: #00A884;
+        color: white;
+        padding: 2px 10px;
         border-radius: 20px;
-        font-size: 0.7rem;
+        font-size: 0.75rem;
+        font-weight: 700;
         text-transform: uppercase;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
         display: inline-block;
     }
 
-    /* Sidebar Clean styling */
+    /* Sidebar Reset */
     [data-testid="stSidebar"] {
-        background-color: #0E0E10 !important;
+        background-color: #0B0B0C !important;
         border-right: 1px solid #2C2C2E;
     }
 
-    p, span, div, h1, h2, h3, label {
-        color: #FFFFFF !important;
-    }
-
-    .stCaption {
-        color: #8E8E93 !important;
+    /* Hidden elements */
+    [data-testid="stChatMessageAvatarUser"], [data-testid="stChatMessageAvatarAssistant"] {
+        display: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- API & MODEL STABILITY ---
+# --- API KEY MANAGEMENT ---
 def get_api_key():
     try:
         if "GOOGLE_API_KEY" in st.secrets:
@@ -128,153 +157,147 @@ def get_api_key():
 
 api_key = get_api_key()
 
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### 🎓 English Pro")
-    st.caption("Elegance in Acquisition")
+    st.caption("Elegance & Accuracy")
     
     if not api_key:
         api_key = st.text_input("Gemini API Key:", type="password")
         if not api_key:
-            st.error("🔑 Session Locked. API Key Missing.")
+            st.error("🔑 Session Locked. API Key Required.")
             st.stop()
     
     st.divider()
     scenario = st.selectbox(
-        "Simulation Context",
+        "Current Scenario",
         options=['General Conversation', 'Job Interview', 'Ordering Food', 'Tech Meeting'],
-        key="context_key"
+        key="scenario_select"
     )
     
-    if st.button("Reset Session", use_container_width=True):
+    if st.button("Clear History", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
-# --- MODEL CONFIGURATION (Fixed 404 Issue) ---
+# --- GEMINI STABLE CONFIG ---
 if api_key:
     genai.configure(api_key=api_key)
     
     system_instruction = f"""
-    You are a professional British/American English Tutor. Context: '{scenario}'.
-    Method: Acquire, Practice, Adjust (APA).
+    You are a professional native English Tutor. Roleplay context: '{scenario}'.
+    Method: APA (Acquire, Practice, Adjust).
     
-    RESPONSE RULES:
-    1. Respond naturally as the roleplay character.
+    RULES:
+    1. Respond naturally as the character.
     2. Suggest vocabulary and grammar tips (ADJUST).
-    3. If audio, give a 'Pronunciation Score' (binary 0-100%).
+    3. If audio is detected, give a 'Pronunciation Score' (0-100%).
     4. MUST respond in STRICT JSON.
     
-    JSON SCHEMA:
+    OUTPUT JSON FORMAT:
     {{
-        "feedback": "Grammar/Vocab fix.",
+        "feedback": "Grammar/Vocab evaluation.",
         "suggestions": ["Natural tip 1", "Natural tip 2"],
         "pronunciation_score": 0,
-        "response": "Character response for the chat."
+        "response": "Character response."
     }}
     """
-    # FIX: Use stable model string 'gemini-1.5-flash'
+    # STABLE MODEL: gemini-1.5-flash (no prefix)
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-1.5-flash", 
         system_instruction=system_instruction
     )
 
-# --- SESSION ---
+# --- SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- CHAT RENDERING ---
+# --- CHAT DISPLAY ---
 st.title("🎓 English Tutor Pro")
-st.caption(f"Scenario: {scenario} • High-Contrast Night Active")
+st.caption(f"Practicing: {scenario}")
 
-chat_viewport = st.container()
-with chat_viewport:
-    for msg in st.session_state.messages:
-        role = msg["role"]
-        bubble_css = "bubble-user" if role == "user" else "bubble-assistant"
-        
-        with st.chat_message(role):
-            if role == "assistant":
-                # Render AI Intelligence Data
-                intel_block = ""
-                if msg.get("feedback") or msg.get("score"):
-                    score = msg.get("score", 0)
-                    intel_block = f"""
-                    <div class="intel-box">
-                        {f'<div class="score-label">Speech Accuracy: {score}%</div><br>' if score > 0 else ''}
-                        <b>💡 Correction:</b> {msg.get("feedback", "Your English is flawless!")}<br>
-                        <b>🌟 Better Phrasing:</b> {", ".join(msg.get("suggestions", []))}
-                    </div>
-                    """
-                st.markdown(f'<div class="bubble {bubble_css}">{intel_block}{msg["content"]}</div>', unsafe_allow_html=True)
-                if msg.get("audio"):
-                    st.audio(msg.get("audio"), format="audio/mp3")
-            else:
-                st.markdown(f'<div class="bubble {bubble_css}">{msg["content"]}</div>', unsafe_allow_html=True)
+for msg in st.session_state.messages:
+    role = msg["role"]
+    bubble_type = "bubble-user" if role == "user" else "bubble-assistant"
+    
+    with st.chat_message(role):
+        if role == "assistant":
+            # Intelligence Overlay
+            intel_overlay = ""
+            if msg.get("feedback") or msg.get("score"):
+                p_score = msg.get("score", 0)
+                intel_overlay = f"""
+                <div class="feedback-pill">
+                    {f'<div class="accuracy-tag">Pronunciation: {p_score}%</div><br>' if p_score > 0 else ''}
+                    <b>💡 Adjust:</b> {msg.get("feedback", "Excellent phrasal usage!")}<br>
+                    <b>🌟 Suggestions:</b> {", ".join(msg.get("suggestions", []))}
+                </div>
+                """
+            st.markdown(f'<div class="bubble {bubble_type}">{intel_overlay}{msg["content"]}</div>', unsafe_allow_html=True)
+            if msg.get("audio"):
+                st.audio(msg["audio"], format="audio/mp3")
+        else:
+            st.markdown(f'<div class="bubble {bubble_type}">{msg["content"]}</div>', unsafe_allow_html=True)
 
-# --- THE UNIFIED COCKPIT (100% Rounding & Integrated Mic) ---
-st.markdown("<div style='margin-bottom: 200px;'></div>", unsafe_allow_html=True)
+# --- THE WHATSAPP DOCK (UNIFIED INPUT & VOICE) ---
 
-def handle_exchange(prompt_text=None, audio_raw=None):
-    # 1. Update State
-    entry = prompt_text if prompt_text else "🎤 [Voice Message]"
-    st.session_state.messages.append({"role": "user", "content": entry})
+def process_interaction(text_input=None, audio_input=None):
+    # 1. Capture User Input
+    user_txt = text_input if text_input else "🎤 [Voice Interaction]"
+    st.session_state.messages.append({"role": "user", "content": user_txt})
     
     # 2. IA Processing
     history = [{"role": m["role"] if m["role"] != "assistant" else "model", "parts": [m["content"]]} for m in st.session_state.messages[:-1]]
     chat = model.start_chat(history=history or None)
     
     try:
-        if audio_raw:
-            response = chat.send_message([{"mime_type": "audio/wav", "data": audio_raw}, "Analyze my pronunciation and respond to the chat history."])
+        if audio_input:
+            response = chat.send_message([{"mime_type": "audio/wav", "data": audio_input}, "Analyze this audio as the tutor."])
         else:
-            response = chat.send_message(prompt_text)
+            response = chat.send_message(text_input)
             
-        clean_text = response.text.replace("```json", "").replace("```", "").strip()
-        data = json.loads(clean_text)
-    except Exception as e:
-        data = {"feedback": "", "suggestions": [], "pronunciation_score": 0, "response": response.text if 'response' in locals() else "Service temporarily offline. Check API Key."}
+        json_data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
+    except:
+        json_data = {"feedback": "", "suggestions": [], "pronunciation_score": 0, "response": response.text if 'response' in locals() else "Service error. Please try again."}
 
-    # 3. TTS
-    buf = io.BytesIO()
-    gTTS(text=data["response"], lang='en').write_to_fp(buf)
+    # 3. TTS Generation
+    audio_buffer = io.BytesIO()
+    gTTS(text=json_data["response"], lang='en').write_to_fp(audio_buffer)
     
     st.session_state.messages.append({
         "role": "assistant",
-        "content": data["response"],
-        "feedback": data.get("feedback", ""),
-        "suggestions": data.get("suggestions", []),
-        "score": data.get("pronunciation_score", 0),
-        "audio": buf.getvalue()
+        "content": json_data["response"],
+        "feedback": json_data.get("feedback", ""),
+        "suggestions": json_data.get("suggestions", []),
+        "score": json_data.get("pronunciation_score", 0),
+        "audio": audio_buffer.getvalue()
     })
     st.rerun()
 
-# This is the "Dock"
-with st.container():
-    # Streamlit places chat_input at the very bottom. 
-    # To place mic "inside" visually, we use a Column group just ABOVE it or next to it.
-    # However, to meet the "inside the rounded input" requirement:
-    
-    dock_col1, dock_col2 = st.columns([1, 4])
-    
-    with dock_col1:
-        # Microfone posicionado à esquerda conforme padrão de cockpit unificado
-        m_input = st.audio_input("Mic", label_visibility="collapsed")
-        if m_input:
-            if "last_m" not in st.session_state or st.session_state.last_m != m_input.name:
-                st.session_state.last_m = m_input.name
-                handle_exchange(audio_raw=m_input.read())
-                
-    with dock_col2:
-        t_input = st.chat_input("Mensagem...")
-        if t_input:
-            handle_exchange(prompt_text=t_input)
+# This is the "Dock" Container
+st.markdown("<br><br><br>", unsafe_allow_html=True)
 
-# Custom JS/CSS to force the mic and text input to align into one rounded pill at the bottom
+with st.container():
+    # Native Chat Input - We've styled it to be a 100% rounded Pill
+    prompt = st.chat_input("Mensagem...")
+    if prompt:
+        process_interaction(text_input=prompt)
+
+    # Invisible Container for the Mic, positioned ABSOLUTELY INSIDE the pill on the right
+    st.markdown('<div class="fixed-mic-container">', unsafe_allow_html=True)
+    voice_file = st.audio_input("Recorder", label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    if voice_file:
+        if "v_tag" not in st.session_state or st.session_state.v_tag != voice_file.name:
+            st.session_state.v_tag = voice_file.name
+            process_interaction(audio_input=voice_file.read())
+
+# Final CSS adjustment to hide the original chat container background so our "Dock" looks unified
 st.markdown("""
 <style>
-    /* Force the streamlit fixed bottom bar to be transparent so our design shows */
     [data-testid="stChatInputContainer"] {
-        background-color: transparent !important;
-        border: none !important;
+        padding-top: 0 !important;
+        background: transparent !important;
     }
 </style>
 """, unsafe_allow_html=True)
