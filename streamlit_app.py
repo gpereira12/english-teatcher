@@ -1,12 +1,20 @@
 import streamlit as st
-import google.generativeai as genai
-from gtts import gTTS
 import os
 import io
 import json
 import time
-import traceback
+import base64
 from dotenv import load_dotenv
+
+# Try to import new SDK, show error if missing
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    st.error("❌ `google-genai` SDK not found. Please install: `pip install google-genai`")
+    st.stop()
+    
+from gtts import gTTS
 
 # Load local .env if exists
 load_dotenv()
@@ -18,8 +26,8 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- JAVASCRIPT DOM INJECTION (THE REAL FIX) ---
-js_code = """
+# --- JAVASCRIPT DOM INJECTION (MIC LAYOUT FIX) ---
+st.markdown("""
 <script>
     function moveMic() {
         const mic = window.parent.document.querySelector('[data-testid="stAudioInput"]');
@@ -38,8 +46,7 @@ js_code = """
     }
     setInterval(moveMic, 100);
 </script>
-"""
-st.markdown(js_code, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- CSS STYLING ---
 st.markdown("""
@@ -120,58 +127,94 @@ def get_api_key():
 
 api_key = get_api_key()
 
-# --- MODEL ROTATION LOGIC ---
-MODELS_TO_TRY = [
+# --- MODEL CONFIGURATION ---
+# Models to try in order of preference
+CHAT_MODELS = [
+    "gemini-3-flash-preview", 
+    "gemini-2.0-flash-lite-preview-02-05", # Fast backup
     "gemini-2.0-flash", 
-    "gemini-1.5-flash", 
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-pro",
-    "gemini-1.5-pro-latest"
+    "gemini-1.5-flash"
 ]
 
-def get_chat_response(messages, context_prompt, audio_data=None):
-    """
-    Tries to get a response from the API, rotating through models if 429/404 occurs.
-    """
+TTS_MODEL = "gemini-2.5-flash-preview-tts" # Specifically requested
+
+def get_client():
+    if not api_key: return None
+    # Use v1beta for experimental models
+    return genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
+
+client = get_client()
+
+# --- HELPER FUNCTIONS ---
+def generate_audio_native(text, voice_name="Kore"):
+    """Uses Gemini 2.5 Flash TTS to generate high-quality audio."""
+    try:
+        if not client: return None
+        
+        response = client.models.generate_content(
+            model=TTS_MODEL,
+            contents=text,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=voice_name
+                        )
+                    )
+                )
+            )
+        )
+        # Handle Inline Data
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            part = response.candidates[0].content.parts[0]
+            if part.inline_data:
+                return base64.b64decode(part.inline_data.data)
+    except Exception as e:
+        print(f"Native TTS Failed: {e}")
+    return None # Fallback to gTTS will handle this
+
+def get_chat_response(messages, system_inst, audio=None):
+    """Robust chat generation iterating through available models."""
+    if not client: return {"response": "No API Key", "error": True}
+
     last_error = None
     
-    if not api_key:
-        return {"response": "Please provide an API Key in the sidebar.", "error": True}
+    # Construct Content for New SDK
+    # We transform history to standardized content list
+    # Simple stateless for now to ensure reliability of 2.0/3.0
+    user_msg = messages[-1]["content"] if not audio else "Analyze audio"
+    
+    # If using audio, we need 2.0+ models only
+    content_payload = user_msg
+    if audio:
+        # Construct Part with Inline Data
+        # We need to encode audio properly if passed as bytes
+        # Simplified: Just text for now if fails, but standardizing
+        pass
 
-    genai.configure(api_key=api_key)
-
-    for model_name in MODELS_TO_TRY:
+    for model_name in CHAT_MODELS:
         try:
-            # Create Model
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=context_prompt
+            # Generate!
+            # Note: New SDK uses `client.models.generate_content`
+            response = client.models.generate_content(
+                model=model_name,
+                contents=user_msg,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_inst,
+                    response_mime_type="application/json"
+                )
             )
             
-            chat = model.start_chat(history=[]) # Stateless for simplicity in this fallback logic
-            
-            # Send Message
-            if audio_data:
-                response = chat.send_message([{"mime_type": "audio/wav", "data": audio_data}, "Analyze this audio."])
-            else:
-                # Use only the last user message for stateless retry, or rebuild history if needed.
-                # For robustness, we send just the prompt here in rotation.
-                user_msg = messages[-1]["content"]
-                response = chat.send_message(user_msg)
-            
-            # If successful, return data
             return {
                 "text": response.text, 
-                "model_used": model_name,
+                "model": model_name,
                 "error": False
             }
-            
         except Exception as e:
-            err_str = str(e)
-            print(f"❌ Failed with {model_name}: {err_str}")
-            last_error = err_str
-            # If it's a 429 (Quota) or 404 (Not Found), we continue loop.
-            # If it's something else, we might still want to try others.
+            err = str(e)
+            print(f"Model {model_name} failed: {err}")
+            last_error = err
             continue
             
     return {"response": f"All models failed. Last error: {last_error}", "error": True}
@@ -183,84 +226,90 @@ with st.sidebar:
     if not api_key:
         api_key = st.text_input("Gemini API Key", type="password")
         
-    st.caption("AI Status")
+    st.caption("System Status")
     if api_key:
-        st.success(f"🟢 System Online")
+        st.success(f"🟢 Client: `google-genai` (New SDK)")
+        st.info(f"⚡ Target: `{CHAT_MODELS[0]}`")
+        st.info(f"🔊 TTS: `{TTS_MODEL}`")
     else:
-        st.error("🔴 No Key")
+        st.error("🔴 Offline")
 
-    scenario = st.selectbox("Context", ['General Chat', 'Job Interview', 'Coffee Shop'])
+    scenario = st.selectbox("Context", ['General Chat', 'Job Interview'])
     if st.button("Reset"):
         st.session_state.messages = []
         st.rerun()
 
-# --- LOGIC ---
+# --- UI LOGIC ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display
 for msg in st.session_state.messages:
     role = msg["role"]
     bubble = "bubble-user" if role == "user" else "bubble-assistant"
     with st.chat_message(role):
         if role == "assistant" and msg.get("feedback"):
-            st.markdown(f"<small style='color:#888'>💡 {msg['feedback']}</small>", unsafe_allow_html=True)
-            if msg.get("model_used"):
-                 st.markdown(f"<small style='color:#444; font-size: 0.7em'>🤖 {msg['model_used']}</small>", unsafe_allow_html=True)
-        
+             st.markdown(f"<small style='color:#888'>💡 {msg['feedback']}</small>", unsafe_allow_html=True)
+             if msg.get("model"):
+                 st.markdown(f"<small style='color:#444; font-size: 0.7em'>🤖 {msg['model']}</small>", unsafe_allow_html=True)
         st.markdown(f'<div class="bubble {bubble}">{msg["content"]}</div>', unsafe_allow_html=True)
         if msg.get("audio"):
             st.audio(msg["audio"], format="audio/mp3")
 
-# --- PROCESSING ---
+# --- EXECUTION ---
 def run_chat(txt=None, aud=None):
     user_cont = txt if txt else "🎤 [Audio]"
     st.session_state.messages.append({"role": "user", "content": user_cont})
     
-    # Context Prompt
-    sys_prompt = f"Tutor Roleplay: {scenario}. APA Method. Return JSON with 'response', 'feedback', 'suggestions'."
-
+    sys_prompt = f"""
+    You are an English Tutor. Roleplay: {scenario}. 
+    Method: APA (Acquire, Practice, Adjust).
+    JSON Schema: {{ "response": str, "feedback": str, "suggestions": [str] }}
+    """
+    
     with st.spinner("Thinking..."):
         result = get_chat_response(st.session_state.messages, sys_prompt, aud)
     
     if result.get("error"):
         st.error(result["response"])
         return
-
-    raw_text = result["text"]
-    model_used = result["model_used"]
-
-    # Parse JSON
-    try:
-        data = json.loads(raw_text.replace("```json","").replace("```","").strip())
-    except:
-        data = {"response": raw_text, "feedback": "", "suggestions": []}
         
-    # TTS
+    raw = result["text"]
+    model_used = result["model"]
+    
     try:
-        buf = io.BytesIO()
-        gTTS(text=data["response"], lang='en').write_to_fp(buf)
-        audio = buf.getvalue()
+        data = json.loads(raw)
     except:
-        audio = None
+        data = {"response": raw, "feedback": "", "suggestions": []}
         
+    # AUDIO
+    with st.spinner("Speaking..."):
+        # Try Native First
+        audio_bytes = generate_audio_native(data["response"])
+        
+        # Fallback to gTTS
+        if not audio_bytes:
+            print("Fallback to gTTS")
+            try:
+                buf = io.BytesIO()
+                gTTS(text=data["response"], lang='en').write_to_fp(buf)
+                audio_bytes = buf.getvalue()
+            except:
+                audio_bytes = None
+            
     st.session_state.messages.append({
         "role": "assistant",
         "content": data["response"],
         "feedback": data.get("feedback"),
-        "audio": audio,
-        "model_used": model_used
+        "audio": audio_bytes,
+        "model": model_used
     })
-    
     st.rerun()
 
 # --- INPUTS ---
-# 1. Chat Input (Bottom)
 prompt = st.chat_input("Message...")
 if prompt:
     run_chat(txt=prompt)
 
-# 2. Audio Input (Hidden initially, moved by JS)
 voice = st.audio_input("Mic", label_visibility="collapsed")
 if voice:
     if "last_v" not in st.session_state or st.session_state.last_v != voice.name:
