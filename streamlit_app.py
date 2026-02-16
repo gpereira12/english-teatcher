@@ -11,7 +11,7 @@ load_dotenv()
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
-    page_title="BeConfident | English Tutor",
+    page_title="English Tutor",
     page_icon="🎓",
     layout="centered"
 )
@@ -38,7 +38,7 @@ st.markdown("""
         margin-bottom: 1rem;
     }
 </style>
-""", unsafe_allow_name=True)
+""", unsafe_allow_html=True)
 
 # --- GERENCIAMENTO DE API KEY ---
 def get_api_key():
@@ -121,7 +121,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # --- INTERFACE DE CHAT ---
-st.title("🎓 BeConfident")
+st.title("🎓 English Tutor")
 st.caption(f"Praticando: **{scenario}**")
 
 # Mostrar histórico
