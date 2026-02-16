@@ -175,7 +175,7 @@ for msg in st.session_state.messages:
 # --- PROCESSING ---
 def run_chat(txt=None, aud=None):
     user_cont = txt if txt else "🎤 [Audio]"
-    st.session_state.messages.append({"role": "user", "content": user_content})
+    st.session_state.messages.append({"role": "user", "content": user_cont})
     
     try:
         model = genai.GenerativeModel(
