@@ -16,26 +16,77 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- ESTILO CUSTOMIZADO (Apple-Aesthetics) ---
+# --- ESTILO CUSTOMIZADO (WhatsApp / Premium Aesthetic) ---
 st.markdown("""
 <style>
+    /* Estilo do Fundo (WhatsApp-like subtle pattern) */
     .stApp {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background-color: #e5ddd5;
+        background-image: url("https://www.transparenttextures.com/patterns/cubes.png");
     }
-    .main .block-container {
-        padding-top: 2rem;
+    
+    /* Remover bordas e backgrounds padrão do Streamlit chat */
+    [data-testid="stChatMessage"] {
+        background-color: transparent !important;
+        padding: 0.5rem 0 !important;
+        border: none !important;
     }
-    .stChatMessage {
-        border-radius: 15px;
-        margin-bottom: 1rem;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    
+    /* Container da Bolha de Chat */
+    .chat-bubble {
+        padding: 10px 15px;
+        border-radius: 12px;
+        max-width: 80%;
+        margin-bottom: 5px;
+        position: relative;
+        box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+        font-family: 'Inter', sans-serif;
     }
-    .feedback-box {
+    
+    /* Bolha da IA (Esquerda) */
+    .bubble-assistant {
+        background-color: #ffffff;
+        color: #000000;
+        align-self: flex-start;
+        border-top-left-radius: 0;
+    }
+    
+    /* Bolha do Usuário (Direita) */
+    .bubble-user {
+        background-color: #dcf8c6;
+        color: #000000;
+        margin-left: auto;
+        border-top-right-radius: 0;
+    }
+
+    /* Ocultar avatares padrão para customizar se necessário */
+    [data-testid="stChatMessageAvatarUser"], [data-testid="stChatMessageAvatarAssistant"] {
+        display: none !important;
+    }
+
+    /* Ajustar layout do input */
+    .stChatInputContainer {
+        padding-bottom: 2rem;
+    }
+
+    /* Estilo do Bloco de Feedback */
+    .feedback-container {
+        font-size: 0.85rem;
         background-color: #f0f4ff;
-        border-left: 5px solid #4a90e2;
-        padding: 1rem;
-        border-radius: 5px;
-        margin-bottom: 1rem;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 8px;
+        border-left: 4px solid #34b7f1;
+    }
+
+    /* Customizar Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff !important;
+    }
+
+    /* Ajustar títulos */
+    h1, h2, h3 {
+        color: #075e54;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -57,7 +108,8 @@ def get_api_key():
 api_key = get_api_key()
 
 with st.sidebar:
-    st.title("⚙️ Configurações")
+    st.title("⚙️ English Tutor")
+    st.caption("Settings & Scenario")
     
     if not api_key:
         user_key = st.text_input("Insira sua Google API Key:", type="password")
@@ -71,7 +123,6 @@ with st.sidebar:
 
     st.divider()
     
-    # Escolha de Cenário
     scenario = st.selectbox(
         "Escolha o Cenário",
         options=['General Conversation', 'Job Interview', 'Ordering Food', 'Tech Meeting'],
@@ -88,7 +139,6 @@ with st.sidebar:
 if api_key:
     genai.configure(api_key=api_key)
     
-    # Instrução do Sistema
     system_instruction = f"""
     You are a professional native English Tutor and roleplay partner in the scenario: '{scenario}'.
     
@@ -109,8 +159,6 @@ if api_key:
     Keep the roleplay engaging and contextually appropriate.
     """
     
-    # Using 'gemini-1.5-flash' which is the stable name. 
-    # v1beta error usually happens if the model name is incorrect or library is outdated.
     model = genai.GenerativeModel(
         model_name="gemini-1.5-flash",
         system_instruction=system_instruction
@@ -120,120 +168,150 @@ if api_key:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- INTERFACE DE CHAT ---
+# --- HEADER ---
 st.title("🎓 English Tutor")
-st.caption(f"Praticando: **{scenario}**")
+st.caption(f"Currently in: **{scenario}**")
 
-# Mostrar histórico
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        if msg["role"] == "assistant":
-            if msg.get("feedback"):
-                with st.expander("🔍 Adjust (Feedback)", expanded=False):
-                    st.info(msg["feedback"])
-            
-            st.write(msg["content"])
-            
-            if msg.get("audio"):
-                st.audio(msg["audio"], format="audio/mp3")
-        else:
-            st.write(msg["content"])
-            if msg.get("type") == "audio":
-                st.info("🎤 Audio message sent")
+# --- RENDERIZAÇÃO DAS MENSAGENS (WhatsApp Style) ---
+chat_container = st.container()
 
-# --- LÓGICA DE PROCESSAMENTO ---
+with chat_container:
+    for msg in st.session_state.messages:
+        role = msg["role"]
+        class_name = "bubble-user" if role == "user" else "bubble-assistant"
+        
+        with st.chat_message(role):
+            # Usando HTML customizado para as bolhas dentro do st.chat_message
+            if role == "assistant":
+                st.markdown(f"""
+                <div class="chat-bubble {class_name}">
+                    {f'<div class="feedback-container"><b>🔍 Feedback:</b><br>{msg.get("feedback", "")}</div>' if msg.get("feedback") else ''}
+                    {msg["content"]}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if msg.get("audio"):
+                    st.audio(msg["audio"], format="audio/mp3")
+            else:
+                st.markdown(f"""
+                <div class="chat-bubble {class_name}">
+                    {msg["content"]}
+                    {f'<br><i>🎤 Audio message sent</i>' if msg.get("type") == "audio" else ''}
+                </div>
+                """, unsafe_allow_html=True)
+
+# --- PROCESSAMENTO ---
 def process_message(prompt_text, audio_file=None):
-    st.session_state.messages.append({
+    current_msg = {
         "role": "user", 
-        "content": prompt_text if prompt_text else "[Audio Message]",
+        "content": prompt_text if prompt_text else "",
         "type": "audio" if audio_file else "text"
-    })
+    }
+    st.session_state.messages.append(current_msg)
+    st.rerun()
+
+# Lógica para gerar resposta do modelo APÓS o rerun do usuário para manter ordem visual
+if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "user":
+    last_user_msg = st.session_state.messages[-1]
     
-    with st.chat_message("user"):
-        if prompt_text:
-            st.write(prompt_text)
-        if audio_file:
-            st.audio(audio_file)
-
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
+        with st.spinner("Typing..."):
             try:
-                # Se houver áudio, enviamos para o Gemini transcrever/responder diretamente
+                # Obter prompt real (se for áudio, precisamos que o modelo lide)
                 content = []
-                if prompt_text:
-                    content.append(prompt_text)
-                if audio_file:
-                    # Carregar áudio para o Gemini
-                    audio_bytes = audio_file.read()
-                    content.append({
-                        "mime_type": "audio/wav", # Streamlit audio_input uses wav/webp/mp3 depending on browser, but generally wav
-                        "data": audio_bytes
-                    })
+                if last_user_msg["content"]:
+                    content.append(last_user_msg["content"])
                 
-                # Chat History
-                history = []
-                for m in st.session_state.messages[:-1]:
-                    role = m["role"] if m["role"] != "assistant" else "model"
-                    history.append({"role": role, "parts": [m["content"]]})
-                
-                chat = model.start_chat(history=history)
-                response = chat.send_message(content)
-                
-                raw_content = response.text.strip()
-                if raw_content.startswith("```json"):
-                    raw_content = raw_content.replace("```json", "", 1).replace("```", "", 1).strip()
-                
-                try:
-                    res_json = json.loads(raw_content)
-                    feedback = res_json.get("feedback", "")
-                    assistant_text = res_json.get("response", "I'm sorry, I couldn't process that.")
-                except:
-                    feedback = "Great! Keep practicing."
-                    assistant_text = raw_content
-
-                # UI: Feedback
-                with st.expander("🔍 Adjust (Feedback)", expanded=True):
-                    st.info(feedback)
-                
-                # UI: Texto da Resposta
-                st.write(assistant_text)
-                
-                # Áudio (gTTS)
-                audio_buffer = io.BytesIO()
-                tts = gTTS(text=assistant_text, lang='en', tld='com')
-                tts.write_to_fp(audio_buffer)
-                st.audio(audio_buffer, format="audio/mp3")
-                
-                # Salvar na sessão
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": assistant_text,
-                    "feedback": feedback,
-                    "audio": audio_buffer.getvalue()
-                })
-                
-            except Exception as e:
-                st.error(f"Ocorreu um erro: {e}")
+                # A lógica de áudio aqui é simplificada: se mandou áudio, Gemini 1.5 Flash 
+                # pode receber o áudio Bytes se enviarmos na lista
+                # Mas aqui na sessão, não guardamos o áudio original por performance.
+                # Se for o primeiro processamento, o audio_file estaria disponível em process_message.
+                # Vou injetar a lógica de processamento aqui.
+                pass
+            except:
+                pass
 
 # --- INPUTS ---
-# Colunas para botões de texto e áudio
-col1, col2 = st.columns([1, 1])
+st.divider()
+input_col1, input_col2 = st.columns([2, 1])
 
-with col1:
-    prompt = st.chat_input("Digite sua mensagem em inglês...")
+with input_col1:
+    prompt = st.chat_input("Mensagem...")
     if prompt:
-        process_message(prompt)
+        st.session_state.messages.append({"role": "user", "content": prompt, "type": "text"})
+        
+        # Gerar resposta imediatamente para simplificar fluxo
+        history = []
+        for m in st.session_state.messages[:-1]:
+            role = m["role"] if m["role"] != "assistant" else "model"
+            history.append({"role": role, "parts": [m["content"]]})
+        
+        chat = model.start_chat(history=history or None)
+        response = chat.send_message(prompt)
+        
+        raw_content = response.text.strip()
+        if raw_content.startswith("```json"):
+            raw_content = raw_content.replace("```json", "", 1).replace("```", "", 1).strip()
+        
+        try:
+            res_json = json.loads(raw_content)
+            feedback = res_json.get("feedback", "")
+            assistant_text = res_json.get("response", "...")
+        except:
+            feedback = ""
+            assistant_text = raw_content
 
-with col2:
-    # st.audio_input is available in Streamlit 1.34+
-    try:
-        audio_prompt = st.audio_input("Grave seu áudio")
-        if audio_prompt:
-            # Para evitar duplicidade no rerun do streamlit
-            # Usamos um controle simples
-            if "last_audio" not in st.session_state or st.session_state.last_audio != audio_prompt.name:
-                st.session_state.last_audio = audio_prompt.name
-                process_message(None, audio_prompt)
-    except Exception as e:
-        # Fallback se a versão do Streamlit for antiga ou der erro
-        st.caption("Recurso de áudio indisponível nesta versão do Streamlit.")
+        # Áudio
+        audio_buffer = io.BytesIO()
+        gTTS(text=assistant_text, lang='en', tld='com').write_to_fp(audio_buffer)
+        
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": assistant_text,
+            "feedback": feedback,
+            "audio": audio_buffer.getvalue()
+        })
+        st.rerun()
+
+with input_col2:
+    audio_prompt = st.audio_input("Grave áudio")
+    if audio_prompt:
+        if "last_audio_name" not in st.session_state or st.session_state.last_audio_name != audio_prompt.name:
+            st.session_state.last_audio_name = audio_prompt.name
+            
+            # Processar áudio com Gemini
+            audio_bytes = audio_prompt.read()
+            
+            # Para o histórico, o Gemini precisa de partes
+            history = []
+            for m in st.session_state.messages:
+                role = m["role"] if m["role"] != "assistant" else "model"
+                history.append({"role": role, "parts": [m["content"]]})
+            
+            chat = model.start_chat(history=history or None)
+            response = chat.send_message([{"mime_type": "audio/wav", "data": audio_bytes}, "Analyze this audio as the tutor in our roleplay."])
+            
+            st.session_state.messages.append({"role": "user", "content": "🎤 Mensagem de voz", "type": "audio"})
+            
+            raw_content = response.text.strip()
+            if raw_content.startswith("```json"):
+                raw_content = raw_content.replace("```json", "", 1).replace("```", "", 1).strip()
+            
+            try:
+                res_json = json.loads(raw_content)
+                feedback = res_json.get("feedback", "")
+                assistant_text = res_json.get("response", "...")
+            except:
+                feedback = ""
+                assistant_text = raw_content
+
+            audio_buffer = io.BytesIO()
+            gTTS(text=assistant_text, lang='en', tld='com').write_to_fp(audio_buffer)
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": assistant_text,
+                "feedback": feedback,
+                "audio": audio_buffer.getvalue()
+            })
+            st.rerun()
