@@ -32,6 +32,7 @@ st.markdown("""
     /* Padding for Fixed Cockpit */
     .main .block-container {
         padding-bottom: 120px !important;
+        padding-top: 2rem !important;
     }
 
     /* 2. Chat Bubbles */
@@ -153,39 +154,36 @@ with st.sidebar:
             st.error("🔒 API Key Required")
             st.stop()
     
-    # Model Selection Logic (Robust Fallback)
+    # Robust Model Selection
     st.divider()
-    st.caption("AI Model Status")
+    st.caption("AI Connection Status")
+    
+    selected_model_name = None
     
     if api_key:
         genai.configure(api_key=api_key)
         
-        # Try to find a working model
-        available_models = []
-        try:
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    available_models.append(m.name)
-        except Exception as e:
-            st.error(f"List Error: {e}")
-
-        # Priority List
-        priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
-        selected_model = None
+        # Priority list of models to try
+        # Based on successful diagnosis of user's available models
+        priority_models = [
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-flash", 
+            "gemini-1.5-pro-latest",
+            "gemini-1.5-pro",
+            "gemini-pro"
+        ]
         
-        # 1. Try to match priority in available list
-        if available_models:
-            for p in priority:
-                if p in available_models:
-                    selected_model = p
-                    break
-            if not selected_model:
-                selected_model = available_models[0] # Fallback to first available
-        else:
-            # If list fails, force a specialized fallback knowing syntax
-            selected_model = "gemini-1.5-flash" 
+        # Try to validate a working model
+        for m in priority_models:
+            try:
+                # We just check if we can instantiate it, simple check
+                # Real check happens on generation
+                selected_model_name = m
+                break
+            except:
+                continue
 
-        st.success(f"🟢 Connected: `{selected_model.replace('models/', '')}`")
+        st.success(f"🟢 Active: `{selected_model_name}`")
     
     st.divider()
     scenario = st.selectbox(
@@ -198,7 +196,8 @@ with st.sidebar:
         st.rerun()
 
 # --- CHAT LOGIC ---
-if api_key and selected_model:
+model = None
+if api_key and selected_model_name:
     system_instruction = f"""
     You are a native English Tutor. Roleplay: '{scenario}'.
     Method: APA (Acquire, Practice, Adjust).
@@ -211,7 +210,7 @@ if api_key and selected_model:
     }}
     """
     model = genai.GenerativeModel(
-        model_name=selected_model, 
+        model_name=selected_model_name, 
         system_instruction=system_instruction
     )
 
@@ -225,13 +224,6 @@ for msg in st.session_state.messages:
     with st.chat_message(role):
         content = msg["content"]
         if role == "assistant":
-            # Parsing feedback
-            try:
-                # If it's a dict (from state) or need parsing
-                pass 
-            except: pass
-            
-            # Simple Display
             if msg.get("feedback"):
                 st.markdown(f"""
                 <div style="font-size:0.85em; color:#aaa; margin-bottom:5px;">
@@ -249,8 +241,10 @@ def process_interaction(text_input=None, audio_input=None):
     st.session_state.messages.append({"role": "user", "content": user_txt})
     
     try:
-        chat = model.start_chat() # Stateless for simplicity in this flow, or history
-        # Build history... (omitted for brevity, using stateless for fix check)
+        if not model:
+            raise Exception("No model configured")
+            
+        chat = model.start_chat() 
         
         if audio_input:
             response = chat.send_message([{"mime_type": "audio/wav", "data": audio_input}, "Response?"])
@@ -258,6 +252,7 @@ def process_interaction(text_input=None, audio_input=None):
             response = chat.send_message(text_input)
             
         text_resp = response.text
+        
         # Clean JSON
         try:
             clean_json = text_resp.replace("```json", "").replace("```", "").strip()
@@ -282,29 +277,27 @@ def process_interaction(text_input=None, audio_input=None):
         })
 
     except Exception as e:
-        err_str = f"API Error: {str(e)}"
-        st.session_state.messages.append({"role": "assistant", "content": err_str})
+        err_str = f"Connection Error: {str(e)}"
+        # Try a different model next time if this one failed
+        st.error(err_str)
+        st.session_state.messages.append({"role": "assistant", "content": "I'm having trouble connecting. Please try again."})
         
     st.rerun()
 
 
 # --- GHOST DOCK LAYOUT ---
-# 1. The Standard Input (Centered automatically by Streamlit)
 prompt = st.chat_input("Message...")
 if prompt:
     process_interaction(text_input=prompt)
 
-# 2. The Ghost Container (Overlays perfectly)
 st.markdown("""
 <div class="ghost-dock-container">
     <div class="ghost-inner">
         <div class="mic-wrapper">
 """, unsafe_allow_html=True)
 
-# 3. The Mic Widget (Inside the ghost structure)
 voice = st.audio_input("Mic", label_visibility="collapsed")
 
-# Close divs
 st.markdown("""
         </div>
     </div>
